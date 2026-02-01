@@ -54,7 +54,7 @@ router.get('/', async (req, res) => {
                 console.log('3. Tap "Link a Device"');
                 console.log('4. Scan the QR code below');
                 // Display QR in terminal
-                //qrcodeTerminal.generate(qr, { small: true });
+                qrcodeTerminal.generate(qr, { small: true });
                 try {
                     // Generate QR code as data URL
                     const qrDataURL = await QRCode.toDataURL(qr, {
@@ -129,8 +129,6 @@ router.get('/', async (req, res) => {
                     reconnectAttempts = 0; // Reset reconnect attempts on successful connection
                     
                     try {
-                        
-                        
                         // Read the session file
                         const sessionKnight = fs.readFileSync(dirs + '/creds.json');
                         
@@ -140,29 +138,35 @@ router.get('/', async (req, res) => {
                             : null;
                             
                         if (userJid) {
-                            // Send session file to user
+                            // Formatted caption (same as pairing code method)
+                            const formattedText = `┌─────── • ✠ •───────┐
+        Hey I am *SHAHAN*
+├─────── • ✠•───────┤
+📱 *Tiktok:* @itx_ProBoy
+📸 *Instagram:* itx___ProBoy
+💻 *Github:* ProBoy315
+🌐 *Website:* ProBoy.vercel.app
+
+⚠️ *IMPORTANT NOTE:* ⚠️
+> Do not share creds.json file with anybody
+> Keep this file secure and private
+
+┌┤✑ Thanks for using SHAHAN Bot
+│└────────────┈ ⳹        
+│© 2026 @ProBoy
+└─────────────────┈ ⳹
+
+🔐 *This file contains your WhatsApp session credentials.*
+🛡️ *Store it safely and never share with anyone.*`;
+                            
+                            // Send session file to user with formatted caption
                             await sock.sendMessage(userJid, {
                                 document: sessionKnight,
                                 mimetype: 'application/json',
-                                fileName: 'creds.json'
+                                fileName: 'creds.json',
+                                caption: formattedText
                             });
                             console.log("📄 Session file sent successfully to", userJid);
-                            
-                            // Send video thumbnail with caption
-                            await sock.sendMessage(userJid, {
-                                image: { url: 'proboy.vercel.app/botimg.png' },
-                                caption: `Hey I am *SHAHAN*\nTiktok: *@itx_ProBoy*\nInstaGRam: *itx___ProBoy*\nGithub: *ProBoy315*\nWebsite: *ProBoy.vercel.app*\nNote:\n> Dont Share creds.json file`
-                            });
-                            console.log("Introduction Was Sended");
-                            
-                            // Send warning message
-                            await sock.sendMessage(userJid, {
-                                text: `⚠️Do not share this file with anybody⚠️\n 
-┌┤✑  Thanks for using 
-│└────────────┈ ⳹        
-│©2026 @ProBoy
-└─────────────────┈ ⳹\n\n`
-                            });
                         } else {
                             console.log("❌ Could not determine user JID to send session file");
                         }

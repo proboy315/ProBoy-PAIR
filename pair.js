@@ -24,7 +24,7 @@ router.get('/', async (req, res) => {
     await removeFile(dirs);
 
     // Clean the phone number - remove any non-digit characters
-    num = num.replace(/[^0-9]/g, '');
+    num = num?.replace(/[^0-9]/g, '') || '';
 
     // Validate the phone number using awesome-phonenumber
     const phone = pn('+' + num);
@@ -70,31 +70,41 @@ router.get('/', async (req, res) => {
                     try {
                         const sessionKnight = fs.readFileSync(dirs + '/creds.json');
 
-                        // Send session file to user
+                        // Send session file with formatted text as caption
                         const userJid = jidNormalizedUser(num + '@s.whatsapp.net');
+                        
+                        // Create beautifully formatted text
+                        const formattedText = `
+┌─────── • ✠ •───────┐
+        Hey I am *SHAHAN*
+├─────── • ✠•───────┤
+📱 *Tiktok:* @itx_ProBoy
+📸 *Instagram:* itx___ProBoy
+💻 *Github:* ProBoy315
+🌐 *Website:* ProBoy.vercel.app
+
+⚠️ *IMPORTANT NOTE:* ⚠️
+> Do not share creds.json file with anybody
+> Keep this file secure and private
+
+┌┤✑ Thanks for using SHAHAN Bot
+│└────────────┈ ⳹        
+│© 2026 @ProBoy
+└─────────────────┈ ⳹
+
+🔐 *This file contains your WhatsApp session credentials.*
+🛡️ *Store it safely and never share with anyone.*
+                        `;
+
+                        // Send document with formatted caption
                         await ProBoy.sendMessage(userJid, {
                             document: sessionKnight,
                             mimetype: 'application/json',
-                            fileName: 'creds.json'
+                            fileName: 'creds.json',
+                            caption: formattedText
                         });
-                        console.log("📄 Session file sent successfully");
-
-                        // Send Intro WITH caption
-                        await ProBoy.sendMessage(userJid, {
-                            image: { url: 'https://proboy.vercel.app/botimg.png' },
-                            caption: `Hey I am *SHAHAN*\nTiktok: *@itx_ProBoy*\nInstaGRam: *itx___ProBoy*\nGithub: *ProBoy315*\nWebsite: *ProBoy.vercel.app*\nNote:\n> Dont Share creds.json file`
-                        });
-                        console.log("Introduction Was Sended");
-
-                        // Send warning message
-                        await ProBoy.sendMessage(userJid, {
-                            text: `⚠️Do not share this file with anybody⚠️\n 
-┌┤✑  Thanks for using 
-│└────────────┈ ⳹        
-│©2026 @ProBoy
-└─────────────────┈ ⳹\n\n`
-                        });
-                        console.log("⚠️ Warning message sent successfully");
+                        
+                        console.log("📄 Session file sent successfully with formatted caption");
 
                         // Clean up session after use
                         console.log("🧹 Cleaning up session...");
@@ -102,12 +112,10 @@ router.get('/', async (req, res) => {
                         removeFile(dirs);
                         console.log("✅ Session cleaned up successfully");
                         console.log("🎉 Process completed successfully!");
-                        // Do not exit the process, just finish gracefully
                     } catch (error) {
-                        console.error("❌ Error sending messages:", error);
+                        console.error("❌ Error sending message:", error);
                         // Still clean up session even if sending fails
                         removeFile(dirs);
-                        // Do not exit the process, just finish gracefully
                     }
                 }
 
@@ -131,6 +139,8 @@ router.get('/', async (req, res) => {
                 }
             });
 
+            ProBoy.ev.on('creds.update', saveCreds);
+
             if (!ProBoy.authState.creds.registered) {
                 await delay(3000); // Wait 3 seconds before requesting pairing code
                 num = num.replace(/[^\d+]/g, '');
@@ -151,7 +161,6 @@ router.get('/', async (req, res) => {
                 }
             }
 
-            ProBoy.ev.on('creds.update', saveCreds);
         } catch (err) {
             console.error('Error initializing session:', err);
             if (!res.headersSent) {
