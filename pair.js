@@ -1,101 +1,48 @@
 import express from 'express';
 import fs from 'fs';
 import pino from 'pino';
-import { makeWASocket, useMultiFileAuthState, delay, makeCacheableSignalKeyStore, Browsers, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, delay, makeCacheableSignalKeyStore, Browsers, jidNormalizedUser, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pn from 'awesome-phonenumber';
 
 const router = express.Router();
 
-// Store pairing codes temporarily
-const pairingCodes = new Map();
-
+// Ensure the session directory exists
 function removeFile(FilePath) {
     try {
         if (!fs.existsSync(FilePath)) return false;
         fs.rmSync(FilePath, { recursive: true, force: true });
     } catch (e) {
-        // Ignore errors
+        console.error('Error removing file:', e);
     }
 }
 
-// Main endpoint for pairing code
 router.get('/', async (req, res) => {
-    let num = req.query.num;
-    
-    // Agar query parameter 'num' nahi hai to check for 'number'
-    if (!num) {
-        num = req.query.number;
-    }
-    
-    if (!num) {
-        return res.status(400).send({
-            error: 'Phone number required',
-            message: 'Use: /?num=923027598014 or /?number=923027598014'
-        });
-    }
-    
-    console.log(`📱 Received request for number: ${num}`);
-    
-    // Remove non-digit characters
-    num = num.replace(/[^0-9]/g, '');
-    
-    // Validate phone number
+    let num = req.query.number;
+    let dirs = './' + (num || `session`);
+
+    // Remove existing session if present
+    await removeFile(dirs);
+
+    // Clean the phone number - remove any non-digit characters
+    num = num?.replace(/[^0-9]/g, '') || '';
+
+    // Validate the phone number using awesome-phonenumber
     const phone = pn('+' + num);
     if (!phone.isValid()) {
-        return res.status(400).send({
-            error: 'Invalid phone number',
-            message: 'Please enter a valid international number without + or spaces',
-            example: '923027598014'
-        });
-    }
-    
-    // Get E.164 format without +
-    const cleanNum = phone.getNumber('e164').replace('+', '');
-    const sessionDir = `./session_${cleanNum}`;
-    
-    // Clean old session if exists
-    if (fs.existsSync(sessionDir)) {
-        removeFile(sessionDir);
-    }
-    
-    try {
-        // Start pairing process
-        const pairingCode = await startPairingProcess(cleanNum, sessionDir);
-        
-        if (pairingCode) {
-            // Store code temporarily
-            pairingCodes.set(cleanNum, {
-                code: pairingCode,
-                timestamp: Date.now()
-            });
-            
-            // Auto delete after 5 minutes
-            setTimeout(() => {
-                pairingCodes.delete(cleanNum);
-                removeFile(sessionDir);
-            }, 5 * 60 * 1000);
-            
-            // Return just the pairing code
-            return res.send(pairingCode);
-        } else {
-            return res.status(500).send('Failed to get pairing code');
+        if (!res.headersSent) {
+            return res.status(400).send({ code: 'Invalid phone number. Please enter your full international number (e.g., 15551234567 for US, 447911123456 for UK, 84987654321 for Vietnam, etc.) without + or spaces.' });
         }
-        
-    } catch (error) {
-        console.error('Error in pairing:', error);
-        removeFile(sessionDir);
-        return res.status(500).send('Error getting pairing code');
+        return;
     }
-});
+    // Use the international number format (E.164, without '+')
+    num = phone.getNumber('e164').replace('+', '');
 
-// Function to start pairing process
-async function startPairingProcess(num, sessionDir) {
-    return new Promise(async (resolve, reject) => {
+    async function initiateSession() {
+        const { state, saveCreds } = await useMultiFileAuthState(dirs);
+
         try {
-            const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-            const { version } = await fetchLatestBaileysVersion();
-            
-            const socket = makeWASocket({
+            const { version, isLatest } = await fetchLatestBaileysVersion();
+            let ProBoy = makeWASocket({
                 version,
                 auth: {
                     creds: state.creds,
@@ -112,110 +59,134 @@ async function startPairingProcess(num, sessionDir) {
                 retryRequestDelayMs: 250,
                 maxRetries: 5,
             });
-            
-            // Store socket for later use
-            const sockets = new Map();
-            sockets.set(num, socket);
-            
-            let pairingCodeReceived = false;
-            
-            socket.ev.on('connection.update', async (update) => {
-                const { connection, lastDisconnect } = update;
-                
+
+            ProBoy.ev.on('connection.update', async (update) => {
+                const { connection, lastDisconnect, isNewLogin, isOnline } = update;
+
                 if (connection === 'open') {
-                    console.log(`✅ Connected for ${num}`);
+                    console.log("✅ Connected successfully!");
+                    console.log("📱 Sending session file to user...");
                     
-                    // Clean up after sending session
-                    setTimeout(() => {
-                        removeFile(sessionDir);
-                        sockets.delete(num);
-                    }, 5000);
+                    try {
+                        const sessionKnight = fs.readFileSync(dirs + '/creds.json');
+
+                        // Send session file with formatted text as caption
+                        const userJid = jidNormalizedUser(num + '@s.whatsapp.net');
+                        
+                        // Create beautifully formatted text
+                        const formattedText = `
+┌─────── • ✠ •───────┐
+        Hey I am *SHAHAN*
+├─────── • ✠•───────┤
+📱 *Tiktok:* @itx_ProBoy
+📸 *Instagram:* itx___ProBoy
+💻 *Github:* ProBoy315
+🌐 *Website:* ProBoy.vercel.app
+
+⚠️ *IMPORTANT NOTE:* ⚠️
+> Do not share creds.json file with anybody
+> Keep this file secure and private
+
+┌┤✑ Thanks for using SHAHAN Bot
+│└────────────┈ ⳹        
+│© 2026 @ProBoy
+└─────────────────┈ ⳹
+
+🔐 *This file contains your WhatsApp session credentials.*
+🛡️ *Store it safely and never share with anyone.*
+                        `;
+
+                        // Send document with formatted caption
+                        await ProBoy.sendMessage(userJid, {
+                            document: sessionKnight,
+                            mimetype: 'application/json',
+                            fileName: 'creds.json',
+                            caption: formattedText
+                        });
+                        
+                        console.log("📄 Session file sent successfully with formatted caption");
+
+                        // Clean up session after use
+                        console.log("🧹 Cleaning up session...");
+                        await delay(1000);
+                        removeFile(dirs);
+                        console.log("✅ Session cleaned up successfully");
+                        console.log("🎉 Process completed successfully!");
+                    } catch (error) {
+                        console.error("❌ Error sending message:", error);
+                        // Still clean up session even if sending fails
+                        removeFile(dirs);
+                    }
                 }
-                
+
+                if (isNewLogin) {
+                    console.log("🔐 New login via pair code");
+                }
+
+                if (isOnline) {
+                    console.log("📶 Client is online");
+                }
+
                 if (connection === 'close') {
-                    console.log(`❌ Connection closed for ${num}`);
-                    removeFile(sessionDir);
-                    sockets.delete(num);
-                    if (!pairingCodeReceived) {
-                        reject(new Error('Connection closed before getting pairing code'));
+                    const statusCode = lastDisconnect?.error?.output?.statusCode;
+
+                    if (statusCode === 401) {
+                        console.log("❌ Logged out from WhatsApp. Need to generate new pair code.");
+                    } else {
+                        console.log("🔁 Connection closed — restarting...");
+                        initiateSession();
                     }
                 }
             });
-            
-            socket.ev.on('creds.update', saveCreds);
-            
-            // Request pairing code
-            if (!socket.authState.creds.registered) {
-                await delay(3000);
-                
-                try {
-                    const code = await socket.requestPairingCode(num);
-                    const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
-                    
-                    console.log(`📋 Pairing code for ${num}: ${formattedCode}`);
-                    pairingCodeReceived = true;
-                    
-                    resolve(formattedCode);
-                    
-                } catch (pairingError) {
-                    console.error(`❌ Pairing error for ${num}:`, pairingError);
-                    removeFile(sessionDir);
-                    sockets.delete(num);
-                    reject(pairingError);
-                }
-            } else {
-                // Already registered
-                resolve('Already registered');
-            }
-            
-        } catch (error) {
-            console.error(`❌ Error starting session for ${num}:`, error);
-            removeFile(sessionDir);
-            reject(error);
-        }
-    });
-}
 
-// Additional endpoint to check if code is available
-router.get('/check', (req, res) => {
-    let num = req.query.num || req.query.number;
-    
-    if (!num) {
-        return res.status(400).send({
-            error: 'Phone number required',
-            message: 'Use: /check?num=923027598014'
-        });
+            ProBoy.ev.on('creds.update', saveCreds);
+
+            if (!ProBoy.authState.creds.registered) {
+                await delay(3000); // Wait 3 seconds before requesting pairing code
+                num = num.replace(/[^\d+]/g, '');
+                if (num.startsWith('+')) num = num.substring(1);
+
+                try {
+                    let code = await ProBoy.requestPairingCode(num);
+                    code = code?.match(/.{1,4}/g)?.join('-') || code;
+                    if (!res.headersSent) {
+                        console.log({ num, code });
+                        await res.send({ code });
+                    }
+                } catch (error) {
+                    console.error('Error requesting pairing code:', error);
+                    if (!res.headersSent) {
+                        res.status(503).send({ code: 'Failed to get pairing code. Please check your phone number and try again.' });
+                    }
+                }
+            }
+
+        } catch (err) {
+            console.error('Error initializing session:', err);
+            if (!res.headersSent) {
+                res.status(503).send({ code: 'Service Unavailable' });
+            }
+        }
     }
-    
-    num = num.replace(/[^0-9]/g, '');
-    
-    const codeData = pairingCodes.get(num);
-    
-    if (!codeData) {
-        return res.status(404).send('No pairing code found for this number');
-    }
-    
-    // Check if code is expired (5 minutes)
-    if (Date.now() - codeData.timestamp > 5 * 60 * 1000) {
-        pairingCodes.delete(num);
-        return res.status(410).send('Pairing code expired');
-    }
-    
-    res.send({
-        number: num,
-        pairing_code: codeData.code,
-        expires_in: Math.floor((5 * 60 * 1000 - (Date.now() - codeData.timestamp)) / 1000) + ' seconds'
-    });
+
+    await initiateSession();
 });
 
-// Clean up expired codes periodically
-setInterval(() => {
-    const now = Date.now();
-    for (const [num, data] of pairingCodes.entries()) {
-        if (now - data.timestamp > 5 * 60 * 1000) {
-            pairingCodes.delete(num);
-        }
-    }
-}, 60000); // Clean every minute
+// Global uncaught exception handler
+process.on('uncaughtException', (err) => {
+    let e = String(err);
+    if (e.includes("conflict")) return;
+    if (e.includes("not-authorized")) return;
+    if (e.includes("Socket connection timeout")) return;
+    if (e.includes("rate-overlimit")) return;
+    if (e.includes("Connection Closed")) return;
+    if (e.includes("Timed Out")) return;
+    if (e.includes("Value not found")) return;
+    if (e.includes("Stream Errored")) return;
+    if (e.includes("Stream Errored (restart required)")) return;
+    if (e.includes("statusCode: 515")) return;
+    if (e.includes("statusCode: 503")) return;
+    console.log('Caught exception: ', err);
+});
 
-export default router;
+export default router; 
